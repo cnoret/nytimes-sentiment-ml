@@ -1,0 +1,129 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = 'nyt-economic-sentiment-ml'
+        TESTS_REPORT = 'tests-results.json'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Checkout the code from the repository
+                git branch: 'main',
+                    url: 'https://github.com/cnoret/nytimes-sentiment-ml'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image using the Dockerfile
+                    sh 'docker build -t ${DOCKER_IMAGE} ml-workflow'
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'docker run --rm ${DOCKER_IMAGE} bash -c "pip install -r /app/requirements.txt"'
+            }
+        }
+
+        stage('Run Unit Tests') {
+            steps {
+                script {
+                    // Exécuter pytest avec rapport JSON
+                    sh """
+                    docker run --rm \\
+                        -e PYTHONPATH=/app \\
+                        ${DOCKER_IMAGE} \\
+                        bash -c "cd /app && pytest tests/ --json-report --json-report-file=report.json && cat report.json" | grep -oP '\\{.*\\}' > /tmp/${TESTS_REPORT}
+
+                    """
+                }
+            }
+        }
+
+        stage('Verify Persistence') {
+            steps {
+                script {
+                    sh '''
+                    if [ -f /tmp/${TESTS_REPORT} ]; then
+                        echo "Le fichier existe et persiste entre les steps!"
+                        ls -l /tmp/${TESTS_REPORT}
+                    else
+                        echo "Fichier non trouvé"
+                        exit 1
+                    fi
+                    '''
+                }
+            }
+        }
+        
+        stage('Display Results') {
+            steps {
+                script {
+                    // commande à executer dans un shell blue-ocean : cat /tmp/tests-results.json | docker run --rm -i nyt-economic-sentiment-ml:latest bash -c "cat > /tmp/tests-results.json && python3 /app/scripts/display_tests_results.py /tmp/tests-results.json"
+                    sh """
+                    cat /tmp/${TESTS_REPORT} | docker run --rm -i \\
+                        ${DOCKER_IMAGE} \\
+                        bash -c "cat > /tmp/${TESTS_REPORT} && python3 /app/scripts/display_tests_results.py /tmp/${TESTS_REPORT}"
+                    """
+                }
+            }
+        }
+
+        /*stage('Run Tests Inside Docker Container') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'mlflow-tracking-uri', variable: 'MLFLOW_TRACKING_URI'),
+                    string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId: 'backend-store-uri', variable: 'BACKEND_STORE_URI'),
+                    string(credentialsId: 'artifact-root', variable: 'ARTIFACT_ROOT')
+                ]) {
+                    // Write environment variables to a temporary file
+                    // KEEP SINGLE QUOTE FOR SECURITY PURPOSES (MORE INFO HERE: https://www.jenkins.io/doc/book/pipeline/jenkinsfile/#handling-credentials)
+                    script {
+                        writeFile file: 'env.list', text: '''
+                        MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI
+                        AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                        AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                        BACKEND_STORE_URI=$BACKEND_STORE_URI
+                        ARTIFACT_ROOT=$ARTIFACT_ROOT
+                        '''
+                    }
+
+                    // Run a temporary Docker container and pass env variables securely via --env-file
+                    sh '''
+                    docker run --rm --env-file env.list \
+                    ml-pipeline-image \
+                    bash -c "pytest --maxfail=1 --disable-warnings"
+                    '''
+                }
+            }
+        }*/
+    }
+
+    post {
+        always {
+            // Clean up workspace and remove dangling Docker images
+            sh 'docker system prune -f'
+        }
+        success {
+            sh """
+            curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"✅ BUILD RÉUSSI: ${env.JOB_NAME} #${env.BUILD_NUMBER}", "channel":"${env.SLACK_CHANNEL}"}' \
+            ${env.SLACK_WEBHOOK}
+        """
+        }
+        failure {
+            sh """
+                curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"❌ BUILD ÉCHOUÉ: ${env.JOB_NAME} #${env.BUILD_NUMBER}", "channel":"${env.SLACK_CHANNEL}"}' \
+            ${env.SLACK_WEBHOOK}
+            """
+        }
+    }
+}

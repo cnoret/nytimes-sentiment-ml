@@ -1,0 +1,10 @@
+pandas
+evidently
+mlflow
+torch
+torchvision
+transformers
+prophet
+apache-airflow[postgres]
+apache-airflow[amazon]
+psycopg2-binary

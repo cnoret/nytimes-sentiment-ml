@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.pyo
+*.pyd
+*.env
+*.venv
+env/
+venv/
+ENV/
+env.bak/
+*.sqlite3
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# macOS
+.DS_Store
+
+# Airflow
+airflow.cfg
+unittests.cfg
+logs/
+*.log
+*.pid
+*.db
+*.sqlite
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Streamlit
+.streamlit/
+*.streamlit
+
+# General
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Secret files
+nytimes_accessKeys.csv
